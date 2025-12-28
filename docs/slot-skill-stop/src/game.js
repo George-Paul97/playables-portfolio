@@ -1,6 +1,16 @@
 const WIDTH = 720;
 const HEIGHT = 1280;
 
+// Layout constants (frame only for now)
+const REEL_COUNT = 3;
+const SYMBOL_H = 150;
+const WINDOW_H = SYMBOL_H * 3; // 3 rows visible
+const WINDOW_W = 170;
+const REEL_GAP = 22;
+
+const REELS_TOTAL_W = (REEL_COUNT * WINDOW_W) + ((REEL_COUNT - 1) * REEL_GAP);
+const CENTER_Y = 620;
+
 class SlotScene extends Phaser.Scene {
   constructor() {
     super("Slot");
@@ -21,6 +31,8 @@ class SlotScene extends Phaser.Scene {
       fontSize: "22px",
       color: "#9CA3AF",
     }).setOrigin(0.5);
+
+    this.drawReelsFrame();
   }
 
   drawBackground() {
@@ -30,6 +42,18 @@ class SlotScene extends Phaser.Scene {
 
     const glow = this.add.circle(WIDTH / 2, 430, 260, 0x2563eb, 0.12);
     this.tweens.add({ targets: glow, alpha: 0.06, yoyo: true, repeat: -1, duration: 1200 });
+  }
+
+  drawReelsFrame() {
+    const panelW = REELS_TOTAL_W + 56;
+
+    this.add.rectangle(WIDTH / 2, CENTER_Y, panelW, 520, 0x000000, 0.22)
+      .setStrokeStyle(2, 0x1f2937, 1);
+
+    const l = this.add.rectangle(WIDTH / 2 - (panelW / 2 + 5), CENTER_Y, 10, 500, 0x22c55e, 0.08);
+    const r = this.add.rectangle(WIDTH / 2 + (panelW / 2 + 5), CENTER_Y, 10, 500, 0x22c55e, 0.08);
+
+    this.tweens.add({ targets: [l, r], alpha: 0.14, yoyo: true, repeat: -1, duration: 900 });
   }
 }
 
