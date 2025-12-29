@@ -65,15 +65,24 @@ class SlotScene extends Phaser.Scene {
         this.renderReels();
         this.spinBtn = this.makeButton(WIDTH / 2, 1040, 300, 78, "SPIN", () => this.onSpin());
 
+
+        this.coinsText = this.add.text(70, 290, `Coins: ${this.coinValue}`, {
+            fontFamily: "Arial",
+            fontSize: "24px",
+            color: "#E5E7EB",
+            fontStyle: "bold",
+        });
+
         this.stopBtns = [];
         const stopY = 1135;
 
         for (let r = 0; r < REEL_COUNT; r++) {
-        const reelX = this.reels[r].x;
-        const btn = this.makeButton(reelX, stopY, 200, 62, "STOP", () => this.onStop(r));
-        // for now keep them active
-        this.stopBtns.push(btn);
+            const reelX = this.reels[r].x;
+            const btn = this.makeButton(reelX, stopY, 200, 62, "STOP", () => this.onStop(r));
+            btn.setEnabled(false); // IMPORTANT: disable until spin starts
+            this.stopBtns.push(btn);
         }
+
 
     }
 
@@ -86,7 +95,7 @@ class SlotScene extends Phaser.Scene {
         this.stopBtns?.[reelIndex]?.setEnabled?.(false);
 
         // stop to a random symbol
-        const rand = Math.floor(Math.random() * reel.symbolOrder.length);
+        //const rand = Math.floor(Math.random() * reel.symbolOrder.length);
         const targetId = this.plan?.targets?.[reelIndex] || reel.symbolOrder[0];
         reel.targetSymbolId = targetId;
 
@@ -151,6 +160,82 @@ class SlotScene extends Phaser.Scene {
             this.onNearMiss();
         }
     }
+
+    onNearMiss() {
+    // Simple “try again” feedback
+    const msg = this.add.text(WIDTH / 2, 930, "So close! Try again 👀", {
+        fontFamily: "Arial",
+        fontSize: "34px",
+        color: "#FBBF24",
+        fontStyle: "bold",
+    }).setOrigin(0.5);
+
+    this.tweens.add({
+        targets: msg,
+        y: msg.y - 10,
+        yoyo: true,
+        repeat: 3,
+        duration: 140,
+        onComplete: () => msg.destroy(),
+    });
+
+    // Allow another spin
+    this.spinBtn?.setEnabled?.(true);
+    }
+
+    onWin(winSymbol) {
+    // highlight the win row 
+    this.winLine?.setVisible?.(true);
+
+    const overlay = this.add.rectangle(WIDTH / 2, HEIGHT / 2, WIDTH, HEIGHT, 0x000000, 0.55);
+
+    const title = this.add.text(WIDTH / 2, 880, "BIG WIN!", {
+        fontFamily: "Arial",
+        fontSize: "64px",
+        color: "#34D399",
+        fontStyle: "bold",
+    }).setOrigin(0.5);
+
+    const subtitle = this.add.text(
+        WIDTH / 2,
+        950,
+        `Matched ${winSymbol?.label ?? "?"} ${winSymbol?.label ?? "?"} ${winSymbol?.label ?? "?"}`,
+        {
+        fontFamily: "Arial",
+        fontSize: "26px",
+        color: "#E5E7EB",
+        }
+    ).setOrigin(0.5);
+
+    // Basic coin count-up
+    const gain = 250 + Math.floor(Math.random() * 100);
+    const from = this.coinValue;
+    const to = this.coinValue + gain;
+
+    if (this.coinsText) {
+        this.tweens.addCounter({
+        from,
+        to,
+        duration: 900,
+        ease: "Quad.Out",
+        onUpdate: (tw) => {
+            this.coinValue = Math.floor(tw.getValue());
+            this.coinsText.setText(`Coins: ${this.coinValue}`);
+        },
+        });
+    }
+
+    this.cameras.main.shake(240, 0.007);
+
+    // Cleanup + allow replay
+    this.time.delayedCall(900, () => {
+        overlay.destroy();
+        title.destroy();
+        subtitle.destroy();
+        this.spinBtn?.setEnabled?.(true);
+    });
+    }
+
 
     update(time, delta) {
     if (!this.isSpinning) return;
@@ -229,7 +314,9 @@ class SlotScene extends Phaser.Scene {
             pos: 0,
             slots: [],
             targetSymbolId: null, // The symbol we want to land in the center row
-            stopTween: null, // Tween reference for the easing stop animation  
+            stopTween: null, // Tween reference for the easing stop animation  ,
+            state: "STOPPED",
+
         };
 
         const c = this.add.container(x - WINDOW_W / 2, centerY - WINDOW_H / 2);
@@ -297,26 +384,56 @@ class SlotScene extends Phaser.Scene {
     }
 
     makeButton(x, y, w, h, label, onClick) {
-    const container = this.add.container(x, y);
+        const container = this.add.container(x, y);
 
-    const bg = this.add.rectangle(0, 0, w, h, 0x2563eb, 1).setStrokeStyle(3, 0x1d4ed8, 1);
-    const txt = this.add.text(0, 0, label, {
-        fontFamily: "Arial",
-        fontSize: "28px",
-        color: "#ffffff",
-        fontStyle: "bold",
-    }).setOrigin(0.5);
+        const bg = this.add.rectangle(0, 0, w, h, 0x2563eb, 1)
+            .setStrokeStyle(3, 0x1d4ed8, 1);
 
-    container.add([bg, txt]);
-    container.setSize(w, h);
-    container.setInteractive(new Phaser.Geom.Rectangle(-w / 2, -h / 2, w, h), Phaser.Geom.Rectangle.Contains);
+        const txt = this.add.text(0, 0, label, {
+            fontFamily: "Arial",
+            fontSize: "28px",
+            color: "#ffffff",
+            fontStyle: "bold",
+        }).setOrigin(0.5);
 
-    container.on("pointerdown", () => {
-        this.tweens.add({ targets: container, scaleX: 0.97, scaleY: 0.97, yoyo: true, duration: 120 });
-        onClick();
-    });
+        container.add([bg, txt]);
 
-    return { container, bg, txt };
+        // Larger hit area (mobile/trackpad friendly)
+        const hitPad = 14;
+        const hitRect = new Phaser.Geom.Rectangle(
+            -w / 2 - hitPad,
+            -h / 2 - hitPad,
+            w + hitPad * 2,
+            h + hitPad * 2
+        );
+
+        bg.setInteractive(hitRect, Phaser.Geom.Rectangle.Contains);
+        txt.setInteractive(hitRect, Phaser.Geom.Rectangle.Contains);
+
+        const handler = () => {
+            if (!container._enabled) return;
+            this.tweens.add({ targets: container, scaleX: 0.97, scaleY: 0.97, yoyo: true, duration: 120 });
+            onClick();
+        };
+
+        // pointerup is more forgiving than pointerdown
+        bg.on("pointerup", handler);
+        txt.on("pointerup", handler);
+
+        const api = {
+            container, bg, txt,
+            setEnabled: (v) => {
+            container._enabled = v;
+            bg.setFillStyle(v ? 0x2563eb : 0x374151, 1);
+            bg.setStrokeStyle(3, v ? 0x1d4ed8 : 0x1f2937, 1);
+            txt.setAlpha(v ? 1 : 0.65);
+            if (bg.input) bg.input.enabled = v;
+            if (txt.input) txt.input.enabled = v;
+            }
+        };
+
+        api.setEnabled(true);
+        return api;
     }
 
 
@@ -344,6 +461,7 @@ class SlotScene extends Phaser.Scene {
     renderReels() {
         for (const reel of this.reels) {
             const baseIndex = Math.round(reel.pos);
+            const frac = reel.pos - baseIndex;
             const centerSlot = Math.floor(VISIBLE_SLOTS / 2); // 4
 
             for (let i = 0; i < reel.slots.length; i++) {
@@ -352,7 +470,7 @@ class SlotScene extends Phaser.Scene {
                 const symId = reel.symbolOrder[(symbolIndex % reel.symbolOrder.length + reel.symbolOrder.length) % reel.symbolOrder.length];
                 const sym = SYMBOLS.find(s => s.id === symId);
 
-                const y = (WINDOW_H / 2) + offset * SYMBOL_H;
+                const y = (WINDOW_H / 2) + (offset - frac) * SYMBOL_H;
                 const slot = reel.slots[i];
                 slot.container.y = y;
                 slot.txt.setText(sym.label);
