@@ -58,21 +58,47 @@ class SlotScene extends Phaser.Scene {
 
         this.renderReels();
         this.spinBtn = this.makeButton(WIDTH / 2, 1040, 300, 78, "SPIN", () => this.onSpin());
+
+        this.stopBtns = [];
+        const stopY = 1135;
+
+        for (let r = 0; r < REEL_COUNT; r++) {
+        const reelX = this.reels[r].x;
+        const btn = this.makeButton(reelX, stopY, 200, 62, "STOP", () => this.onStop(r));
+        // for now keep them active
+        this.stopBtns.push(btn);
+        }
+
     }
+
+    onStop(reelIndex) {
+        const reel = this.reels[reelIndex];
+        if (!this.isSpinning) return;
+        if (reel.state !== "SPINNING") return;
+
+        reel.state = "STOPPED";
+
+        const allStopped = this.reels.every(r => r.state === "STOPPED");
+        if (allStopped) this.isSpinning = false;
+    }
+
 
     update(time, delta) {
         if (!this.isSpinning) return;
         const dt = delta / 1000;
         for (const reel of this.reels) {
-            // pentru moment: toate se mișcă
-            reel.pos += SPIN_SPEED * dt;
+            if (reel.state === "SPINNING") reel.pos += SPIN_SPEED * dt;
         }
+
         this.renderReels();
     }
 
     onSpin() {
-        this.isSpinning = true;
+    if (this.isSpinning) return;
+    this.isSpinning = true;
+    this.reels.forEach(r => r.state = "SPINNING");
     }
+
 
     drawBackground() {
         this.add.rectangle(WIDTH / 2, HEIGHT / 2, WIDTH, HEIGHT, 0x070a12, 1);
