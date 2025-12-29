@@ -22,6 +22,7 @@ const REELS_TOTAL_W = (REEL_COUNT * WINDOW_W) + ((REEL_COUNT - 1) * REEL_GAP);
 const REELS_LEFT_X = (WIDTH - REELS_TOTAL_W) / 2;
 const CENTER_Y = 620;
 const SPIN_SPEED = 18.0; // symbols per second
+const STOP_EASE_MS = 520; // How fast a reel eases into the final stop position
 
 class SlotScene extends Phaser.Scene {
     constructor() {
@@ -71,33 +72,114 @@ class SlotScene extends Phaser.Scene {
 
     }
 
-    onStop(reelIndex) {
+    onStop(reelIndex, auto = false) {
         const reel = this.reels[reelIndex];
         if (!this.isSpinning) return;
         if (reel.state !== "SPINNING") return;
 
-        reel.state = "STOPPED";
+        // Disable this reel's STOP button immediately for tactile feedback
+        this.stopBtns?.[reelIndex]?.setEnabled?.(false);
 
+        // stop to a random symbol
+        const rand = Math.floor(Math.random() * reel.symbolOrder.length);
+        const targetId = reel.symbolOrder[rand];
+        reel.targetSymbolId = targetId;
+
+        // Ease reel.pos to the next index that lands targetId in the center row
+        const fromPos = reel.pos;
+        const toPos = this.findNextCenterIndex(reel, targetId);
+
+        reel.state = "STOPPING";
+
+        // Stop any previous tween (safety)
+        reel.stopTween?.stop?.();
+
+        reel.stopTween = this.tweens.addCounter({
+            from: fromPos,
+            to: toPos,
+            duration: STOP_EASE_MS + (auto ? 120 : 0),
+            ease: "Cubic.Out",
+            onUpdate: (tw) => {
+            reel.pos = tw.getValue();
+            this.renderReels();
+            },
+            onComplete: () => {
+            reel.state = "STOPPED";
+            // Snap to an integer position to remove floating drift
+            reel.pos = Math.round(reel.pos);
+            this.renderReels();
+            this.checkAllStopped();
+            }
+        });
+    }
+
+
+    // Finds the next integer "center index" >= current position such that
+    // the center symbol matches targetId.
+    // We add +2 steps so the STOP always feels like it had momentum.
+    findNextCenterIndex(reel, targetId) {
+        const len = reel.symbolOrder.length;
+        const cur = reel.pos;
+        const start = Math.ceil(cur + 2);
+
+        for (let k = 0; k < len * 6; k++) {
+            const idx = start + k;
+            const symId = reel.symbolOrder[(idx % len + len) % len];
+            if (symId === targetId) return idx;
+        }
+        return start + 6;
+    }
+
+    checkAllStopped() {
         const allStopped = this.reels.every(r => r.state === "STOPPED");
-        if (allStopped) this.isSpinning = false;
+        if (!allStopped) return;
+
+        this.isSpinning = false;
+
+        // Re-enable SPIN after all reels are stopped
+        this.spinBtn?.setEnabled?.(true);
+
+        // Disable STOP buttons once everything is stopped
+        this.stopBtns?.forEach(b => b.setEnabled?.(false));
     }
 
 
     update(time, delta) {
-        if (!this.isSpinning) return;
-        const dt = delta / 1000;
-        for (const reel of this.reels) {
-            if (reel.state === "SPINNING") reel.pos += SPIN_SPEED * dt;
-        }
+    if (!this.isSpinning) return;
+    const dt = delta / 1000;
 
-        this.renderReels();
+    for (const reel of this.reels) {
+        if (reel.state === "SPINNING") {
+        reel.pos += SPIN_SPEED * dt;
+        }
+    }
+    this.renderReels();
     }
 
     onSpin() {
     if (this.isSpinning) return;
+    // Reset UI state for a new spin
+
     this.isSpinning = true;
-    this.reels.forEach(r => r.state = "SPINNING");
+
+    // Enable STOP buttons while spinning
+    this.stopBtns?.forEach(b => b.setEnabled?.(true));
+
+    // Disable SPIN while reels are spinning
+    this.spinBtn?.setEnabled?.(false);
+
+    // Start all reels spinning
+    for (const reel of this.reels) {
+        reel.state = "SPINNING";
+        reel.targetSymbolId = null;
+
+        // If there was a previous stop tween, kill it
+        reel.stopTween?.stop?.();
+        reel.stopTween = null;
     }
+    }
+
+
 
 
     drawBackground() {
@@ -131,6 +213,8 @@ class SlotScene extends Phaser.Scene {
             symbolOrder: order,
             pos: 0,
             slots: [],
+            targetSymbolId: null, // The symbol we want to land in the center row
+            stopTween: null, // Tween reference for the easing stop animation  
         };
 
         const c = this.add.container(x - WINDOW_W / 2, centerY - WINDOW_H / 2);
