@@ -23,6 +23,7 @@ const REELS_LEFT_X = (WIDTH - REELS_TOTAL_W) / 2;
 const CENTER_Y = 620;
 const SPIN_SPEED = 18.0; // symbols per second
 const STOP_EASE_MS = 520; // How fast a reel eases into the final stop position
+const JACKPOT_ID = "SEVEN";
 
 class SlotScene extends Phaser.Scene {
     constructor() {
@@ -30,6 +31,10 @@ class SlotScene extends Phaser.Scene {
         this.isSpinning = false;
         this.spinBtn = null;
         this.reels = [];
+        this.spinCount = 0;
+        this.plan = null;
+        this.coinValue = 0;
+
     }
 
     create() {
@@ -82,12 +87,12 @@ class SlotScene extends Phaser.Scene {
 
         // stop to a random symbol
         const rand = Math.floor(Math.random() * reel.symbolOrder.length);
-        const targetId = reel.symbolOrder[rand];
+        const targetId = this.plan?.targets?.[reelIndex] || reel.symbolOrder[0];
         reel.targetSymbolId = targetId;
 
-        // Ease reel.pos to the next index that lands targetId in the center row
         const fromPos = reel.pos;
         const toPos = this.findNextCenterIndex(reel, targetId);
+
 
         reel.state = "STOPPING";
 
@@ -136,13 +141,16 @@ class SlotScene extends Phaser.Scene {
 
         this.isSpinning = false;
 
-        // Re-enable SPIN after all reels are stopped
-        this.spinBtn?.setEnabled?.(true);
+        // Evaluate the center row
+        const centers = this.reels.map(r => this.getSymbolAtCenter(r));
+        const isWin = centers.every(s => s && s.id === this.plan.winSymbolId);
 
-        // Disable STOP buttons once everything is stopped
-        this.stopBtns?.forEach(b => b.setEnabled?.(false));
+        if (isWin) {
+            this.onWin(centers[0]);
+        } else {
+            this.onNearMiss();
+        }
     }
-
 
     update(time, delta) {
     if (!this.isSpinning) return;
@@ -157,29 +165,36 @@ class SlotScene extends Phaser.Scene {
     }
 
     onSpin() {
-    if (this.isSpinning) return;
-    // Reset UI state for a new spin
+        if (this.isSpinning) return;
 
-    this.isSpinning = true;
+        this.spinCount += 1;
+        this.plan = this.makeOutcomePlan(this.spinCount);
 
-    // Enable STOP buttons while spinning
-    this.stopBtns?.forEach(b => b.setEnabled?.(true));
+        // Reset any win/end-card visuals for the new spin
+        this.winLine?.setVisible?.(false);
+        if (this.endCard) {
+            this.endCard.setVisible(false);
+            this.endCard.alpha = 0;
+        }
 
-    // Disable SPIN while reels are spinning
-    this.spinBtn?.setEnabled?.(false);
+        // Enable STOP buttons and disable SPIN while spinning
+        this.stopBtns?.forEach(b => b.setEnabled?.(true));
+        this.spinBtn?.setEnabled?.(false);
 
-    // Start all reels spinning
-    for (const reel of this.reels) {
-        reel.state = "SPINNING";
-        reel.targetSymbolId = null;
+        // Start spinning
+        this.isSpinning = true;
+        for (const reel of this.reels) {
+            reel.state = "SPINNING";
+            reel.targetSymbolId = null;
+            reel.stopTween?.stop?.();
+            reel.stopTween = null;
+        }
 
-        // If there was a previous stop tween, kill it
-        reel.stopTween?.stop?.();
-        reel.stopTween = null;
+        // Auto-stop fallback (if user doesn't press STOP)
+        this.time.delayedCall(1600, () => { if (this.isSpinning) this.onStop(0, true); });
+        this.time.delayedCall(2100, () => { if (this.isSpinning) this.onStop(1, true); });
+        this.time.delayedCall(2550, () => { if (this.isSpinning) this.onStop(2, true); });
     }
-    }
-
-
 
 
     drawBackground() {
@@ -274,6 +289,12 @@ class SlotScene extends Phaser.Scene {
         return { container: cont, rect, txt, shine, slotIndex };
     }
 
+    getSymbolAtCenter(reel) {
+        const len = reel.symbolOrder.length;
+        const centerIndex = Math.round(reel.pos);
+        const symId = reel.symbolOrder[(centerIndex % len + len) % len];
+        return SYMBOLS.find(s => s.id === symId);
+    }
 
     makeButton(x, y, w, h, label, onClick) {
     const container = this.add.container(x, y);
@@ -296,6 +317,27 @@ class SlotScene extends Phaser.Scene {
     });
 
     return { container, bg, txt };
+    }
+
+
+    makeOutcomePlan(spinCount) {
+        // Spin #1: near miss (two jackpots, one different)
+        // Spin #2+: win (all jackpots)
+        const winSymbolId = JACKPOT_ID;
+
+        if (spinCount === 1) {
+            return {
+            type: "NEAR_MISS",
+            winSymbolId,
+            targets: [winSymbolId, winSymbolId, "STAR"],
+            };
+        }
+
+        return {
+            type: "WIN",
+            winSymbolId,
+            targets: [winSymbolId, winSymbolId, winSymbolId],
+        };
     }
 
 
