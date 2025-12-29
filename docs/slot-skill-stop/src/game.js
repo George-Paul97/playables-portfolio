@@ -23,6 +23,7 @@ const REELS_LEFT_X = (WIDTH - REELS_TOTAL_W) / 2;
 const CENTER_Y = 620;
 const SPIN_SPEED = 18.0; // symbols per second
 const STOP_EASE_MS = 520; // How fast a reel eases into the final stop position
+const CTA_URL = "https://github.com/George-Paul97";
 const JACKPOT_ID = "SEVEN";
 
 class SlotScene extends Phaser.Scene {
@@ -34,6 +35,8 @@ class SlotScene extends Phaser.Scene {
         this.spinCount = 0;
         this.plan = null;
         this.coinValue = 0;
+        this.winLine = null;
+        this.endCard = null;
 
     }
 
@@ -47,11 +50,6 @@ class SlotScene extends Phaser.Scene {
             fontStyle: "bold",
         }).setOrigin(0.5);
 
-        this.add.text(WIDTH / 2, 230, "Static reels (next: spin + stop)", {
-            fontFamily: "Arial",
-            fontSize: "22px",
-            color: "#9CA3AF",
-        }).setOrigin(0.5);
 
         this.drawReelsFrame();
 
@@ -63,8 +61,24 @@ class SlotScene extends Phaser.Scene {
         }
 
         this.renderReels();
-        this.spinBtn = this.makeButton(WIDTH / 2, 1040, 300, 78, "SPIN", () => this.onSpin());
+        this.add.text(WIDTH / 2, 230, "Tap SPIN, then STOP each reel", {
+            fontFamily: "Arial",
+            fontSize: "22px",
+            color: "#9CA3AF",
+        }).setOrigin(0.5);
 
+        this.spinBtn = this.makeButton(WIDTH / 2, 1040, 300, 78, "SPIN", () => this.onSpin());
+        this.winLine = this.add.rectangle(
+            WIDTH / 2,
+            CENTER_Y,
+            REELS_TOTAL_W,
+            SYMBOL_H,
+            0x00ffcc,
+            0.10
+        );
+        this.winLine.setVisible(false);
+
+        this.endCard = this.createEndCard();
 
         this.coinsText = this.add.text(70, 290, `Coins: ${this.coinValue}`, {
             fontFamily: "Arial",
@@ -114,15 +128,15 @@ class SlotScene extends Phaser.Scene {
             duration: STOP_EASE_MS + (auto ? 120 : 0),
             ease: "Cubic.Out",
             onUpdate: (tw) => {
-            reel.pos = tw.getValue();
-            this.renderReels();
+                reel.pos = tw.getValue();
+                this.renderReels();
             },
             onComplete: () => {
-            reel.state = "STOPPED";
-            // Snap to an integer position to remove floating drift
-            reel.pos = Math.round(reel.pos);
-            this.renderReels();
-            this.checkAllStopped();
+                reel.state = "STOPPED";
+                // Snap to an integer position to remove floating drift
+                reel.pos = Math.round(reel.pos);
+                this.renderReels();
+                this.checkAllStopped();
             }
         });
     }
@@ -149,6 +163,8 @@ class SlotScene extends Phaser.Scene {
         if (!allStopped) return;
 
         this.isSpinning = false;
+        // deactivate `STOP` buttons after everything `stops`
+        this.stopBtns?.forEach(b => b.setEnabled?.(false));
 
         // Evaluate the center row
         const centers = this.reels.map(r => this.getSymbolAtCenter(r));
@@ -162,91 +178,167 @@ class SlotScene extends Phaser.Scene {
     }
 
     onNearMiss() {
-    // Simple “try again” feedback
-    const msg = this.add.text(WIDTH / 2, 930, "So close! Try again 👀", {
-        fontFamily: "Arial",
-        fontSize: "34px",
-        color: "#FBBF24",
-        fontStyle: "bold",
-    }).setOrigin(0.5);
+        // Simple “try again” feedback
+        const msg = this.add.text(WIDTH / 2, 930, "So close! Try again 👀", {
+            fontFamily: "Arial",
+            fontSize: "34px",
+            color: "#FBBF24",
+            fontStyle: "bold",
+        }).setOrigin(0.5);
 
-    this.tweens.add({
-        targets: msg,
-        y: msg.y - 10,
-        yoyo: true,
-        repeat: 3,
-        duration: 140,
-        onComplete: () => msg.destroy(),
-    });
+        this.tweens.add({
+            targets: msg,
+            y: msg.y - 10,
+            yoyo: true,
+            repeat: 3,
+            duration: 140,
+            onComplete: () => msg.destroy(),
+        });
 
-    // Allow another spin
-    this.spinBtn?.setEnabled?.(true);
+        // Allow another spin
+        this.spinBtn?.setEnabled?.(true);
     }
 
     onWin(winSymbol) {
-    // highlight the win row 
-    this.winLine?.setVisible?.(true);
+        // highlight the win row 
+        if (this.winLine) this.winLine.setVisible(true);
 
-    const overlay = this.add.rectangle(WIDTH / 2, HEIGHT / 2, WIDTH, HEIGHT, 0x000000, 0.55);
 
-    const title = this.add.text(WIDTH / 2, 880, "BIG WIN!", {
-        fontFamily: "Arial",
-        fontSize: "64px",
-        color: "#34D399",
-        fontStyle: "bold",
-    }).setOrigin(0.5);
+        const overlay = this.add.rectangle(WIDTH / 2, HEIGHT / 2, WIDTH, HEIGHT, 0x000000, 0.55);
 
-    const subtitle = this.add.text(
-        WIDTH / 2,
-        950,
-        `Matched ${winSymbol?.label ?? "?"} ${winSymbol?.label ?? "?"} ${winSymbol?.label ?? "?"}`,
-        {
-        fontFamily: "Arial",
-        fontSize: "26px",
-        color: "#E5E7EB",
+        const title = this.add.text(WIDTH / 2, 880, "BIG WIN!", {
+            fontFamily: "Arial",
+            fontSize: "64px",
+            color: "#34D399",
+            fontStyle: "bold",
+        }).setOrigin(0.5);
+
+        const subtitle = this.add.text(
+            WIDTH / 2,
+            950,
+            `Matched ${winSymbol?.label ?? "?"} ${winSymbol?.label ?? "?"} ${winSymbol?.label ?? "?"}`,
+            {
+                fontFamily: "Arial",
+                fontSize: "26px",
+                color: "#E5E7EB",
+            }
+        ).setOrigin(0.5);
+
+        // Basic coin count-up
+        const gain = 250 + Math.floor(Math.random() * 100);
+        const from = this.coinValue;
+        const to = this.coinValue + gain;
+
+        if (this.coinsText) {
+            this.tweens.addCounter({
+                from,
+                to,
+                duration: 900,
+                ease: "Quad.Out",
+                onUpdate: (tw) => {
+                    this.coinValue = Math.floor(tw.getValue());
+                    this.coinsText.setText(`Coins: ${this.coinValue}`);
+                },
+            });
         }
-    ).setOrigin(0.5);
 
-    // Basic coin count-up
-    const gain = 250 + Math.floor(Math.random() * 100);
-    const from = this.coinValue;
-    const to = this.coinValue + gain;
+        this.cameras.main.shake(240, 0.007);
 
-    if (this.coinsText) {
-        this.tweens.addCounter({
-        from,
-        to,
-        duration: 900,
-        ease: "Quad.Out",
-        onUpdate: (tw) => {
-            this.coinValue = Math.floor(tw.getValue());
-            this.coinsText.setText(`Coins: ${this.coinValue}`);
-        },
+        // Cleanup + allow replay
+        this.time.delayedCall(900, () => {
+            overlay.destroy();
+            title.destroy();
+            subtitle.destroy();
+            this.showEndCard(); 
+            this.spinBtn?.setEnabled?.(true);
         });
+
+
     }
 
-    this.cameras.main.shake(240, 0.007);
+    createEndCard() {
+        const c = this.add.container(WIDTH / 2, HEIGHT / 2);
+        c.setVisible(false);
+        c.alpha = 0;
 
-    // Cleanup + allow replay
-    this.time.delayedCall(900, () => {
-        overlay.destroy();
-        title.destroy();
-        subtitle.destroy();
-        this.spinBtn?.setEnabled?.(true);
-    });
+        const panel = this.add.rectangle(0, 0, 640, 520, 0x0b1222, 0.96)
+            .setStrokeStyle(3, 0x1f2937, 1);
+
+        const title = this.add.text(0, -170, "Play Now", {
+            fontFamily: "Arial",
+            fontSize: "46px",
+            color: "#E5E7EB",
+            fontStyle: "bold",
+            align: "center",
+        }).setOrigin(0.5);
+
+        const sub = this.add.text(0, -110, "Keep the wins coming", {
+            fontFamily: "Arial",
+            fontSize: "24px",
+            color: "#9CA3AF",
+            align: "center",
+        }).setOrigin(0.5);
+
+        const openCTA = () => {
+            // MRAID support for ad webviews
+            if (window.mraid && typeof window.mraid.open === "function") {
+                window.mraid.open(CTA_URL);
+                return;
+            }
+            window.open(CTA_URL, "_blank", "noopener,noreferrer");
+        };
+
+        const cta = this.makeButton(0, 120, 360, 78, "PLAY NOW", openCTA);
+
+        const note = this.add.text(0, 210, "Limited-time bonus • No download required", {
+            fontFamily: "Arial",
+            fontSize: "18px",
+            color: "#6B7280",
+            align: "center",
+        }).setOrigin(0.5);
+
+        c.add([panel, title, sub, cta.container, note]);
+        c.titleText = title;
+        c.subText = sub;
+
+        // subtle float
+        this.tweens.add({
+            targets: c,
+            y: c.y - 6,
+            yoyo: true,
+            repeat: -1,
+            duration: 900,
+            ease: "Sine.InOut",
+        });
+
+        return c;
+    }
+
+    showEndCard() {
+        if (!this.endCard) return;
+
+        this.endCard.setVisible(true);
+        this.endCard.alpha = 0;
+
+        this.tweens.add({
+            targets: this.endCard,
+            alpha: 1,
+            duration: 260,
+            ease: "Quad.Out",
+        });
     }
 
 
     update(time, delta) {
-    if (!this.isSpinning) return;
-    const dt = delta / 1000;
+        if (!this.isSpinning) return;
+        const dt = delta / 1000;
 
-    for (const reel of this.reels) {
-        if (reel.state === "SPINNING") {
-        reel.pos += SPIN_SPEED * dt;
+        for (const reel of this.reels) {
+            if (reel.state === "SPINNING") {
+                reel.pos += SPIN_SPEED * dt;
+            }
         }
-    }
-    this.renderReels();
+        this.renderReels();
     }
 
     onSpin() {
@@ -256,11 +348,9 @@ class SlotScene extends Phaser.Scene {
         this.plan = this.makeOutcomePlan(this.spinCount);
 
         // Reset any win/end-card visuals for the new spin
-        this.winLine?.setVisible?.(false);
-        if (this.endCard) {
-            this.endCard.setVisible(false);
-            this.endCard.alpha = 0;
-        }
+        if (this.winLine) this.winLine.setVisible(false);
+        if (this.endCard) { this.endCard.setVisible(false); this.endCard.alpha = 0; }
+
 
         // Enable STOP buttons and disable SPIN while spinning
         this.stopBtns?.forEach(b => b.setEnabled?.(true));
@@ -423,12 +513,12 @@ class SlotScene extends Phaser.Scene {
         const api = {
             container, bg, txt,
             setEnabled: (v) => {
-            container._enabled = v;
-            bg.setFillStyle(v ? 0x2563eb : 0x374151, 1);
-            bg.setStrokeStyle(3, v ? 0x1d4ed8 : 0x1f2937, 1);
-            txt.setAlpha(v ? 1 : 0.65);
-            if (bg.input) bg.input.enabled = v;
-            if (txt.input) txt.input.enabled = v;
+                container._enabled = v;
+                bg.setFillStyle(v ? 0x2563eb : 0x374151, 1);
+                bg.setStrokeStyle(3, v ? 0x1d4ed8 : 0x1f2937, 1);
+                txt.setAlpha(v ? 1 : 0.65);
+                if (bg.input) bg.input.enabled = v;
+                if (txt.input) txt.input.enabled = v;
             }
         };
 
@@ -444,9 +534,9 @@ class SlotScene extends Phaser.Scene {
 
         if (spinCount === 1) {
             return {
-            type: "NEAR_MISS",
-            winSymbolId,
-            targets: [winSymbolId, winSymbolId, "STAR"],
+                type: "NEAR_MISS",
+                winSymbolId,
+                targets: [winSymbolId, winSymbolId, "STAR"],
             };
         }
 
